@@ -6,40 +6,34 @@ on:
     branches:
       - "**"
   workflow_dispatch:
+    
 permissions:
   scm-token-own: read
   scm-token-org: read
   id-token: write
 jobs:
   test:
+    outputs:
+      CODE_COVERAGE: ${{ steps.RunUnitTest.outputs.CODE_COVERAGE }}
     steps:
-      - name: Run Jenkins Job
+      - uses: cloudbees-io/ghactions-run-workflow@v2
+        name: Run GHA Workflow
         kind: test
-        uses: cloudbees-io/jenkins-run-job@v2
         continue-on-error: true
         with:
-          url: https://sda.preview.cb-demos.io/westest/
-          username: ${{ secrets.WES_JENKINS_USERNAME }}
-          token: ${{ secrets.WES_JENKINS_TOKEN }}
-          job-name: WesTestJob2
-      - name: Run GHA Workflow
-        kind: test
-        uses: cloudbees-io/ghactions-run-workflow@v2
-        continue-on-error: true
-        with:
-          token: ${{ secrets.WES_GH_TOKEN }}
+          token: ${{ secrets.GH_TOKEN }}
           org-name: cloudbees-days
-          repo-name: hackers-spike-0826-2
+          repo-name: hackers-organized
           branch-name: main
           workflow-name: test-and-build-image
           test-type: JUnit
           test-result-location: junit.xml
-      - name: Get source code
-        uses: cloudbees-io/checkout@v1
+      - uses: cloudbees-io/checkout@v1
+        name: Get source code
         continue-on-error: true
       - name: Run unit tests
-        kind: test
         id: RunUnitTest
+        kind: test
         uses: docker://node:lts
         run: |
           npm ci
@@ -57,8 +51,6 @@ jobs:
             ## Test code coverage
             ${{ steps.RunUnitTest.outputs.CODE_COVERAGE }}
           format: MARKDOWN
-    outputs:
-      CODE_COVERAGE: ${{ steps.RunUnitTest.outputs.CODE_COVERAGE }}
   build-container-image:
     steps:
       - uses: cloudbees-io/checkout@v1
@@ -77,10 +69,10 @@ jobs:
         name: Build container image
         kind: build
         with:
-          destination: ${{ secrets.DOCKERHUB_USER }}/hackers-organized:${{ cloudbees.scm.sha }}
+          destination: ${{ secrets.DOCKERHUB_USER }}/hackers-organized:${{ cloudbees.scm.sha }},${{ secrets.DOCKERHUB_USER }}/hackers-organized:latest
           tar-path: container-image.tar
           build-args: BUILDKIT_CONTEXT_KEEP_GIT_DIR=1,BUILDKIT_INLINE_CACHE=1
-      - uses: cloudbees-io/asset-chain-utils-preprod/upload-binary@v1
+      - uses: cloudbees-io/asset-chain-utils/upload-binary@v1
         name: Upload binary from container build
         continue-on-error: true
         id: upload-binary
@@ -93,9 +85,9 @@ jobs:
         with:
           content: |-
             ## Built and pushed image to docker hub
-
+            
             [Docker Hub](https://hub.docker.com/repository/docker/ldonleycb/hackers-organized/tags)
-
+            
             Deployed hackers-organized:${{ cloudbees.scm.sha }}
           format: MARKDOWN
     needs: test
@@ -114,8 +106,9 @@ jobs:
         run: |
           npm ci
           npm run test:coverage
-      - uses: cloudbees-io/sonarqube-bundled-sast-scan-code@v1
+      - uses: cloudbees-io/sonarqube-bundled-sast-scan-code@v2
         name: Scan with SonarQube
+        id: sonar-scan
         kind: scan
         continue-on-error: true
         with:
@@ -136,7 +129,7 @@ jobs:
         with:
           orgname: ${{ secrets.SNYK_ORGNAME }}
           token: ${{ secrets.SNYK_TOKEN }}
-          language: LANGUAGE_JS
+          language: "LANGUAGE_JS"
       - name: Fetch SonarQube Issues
         id: FetchSonarQubeIssues
         uses: docker://alpine/git:latest
@@ -149,7 +142,7 @@ jobs:
           CRITICAL_COUNT=$(jq '[.issues[] | select(.severity=="CRITICAL")] | length' sonar-issues.json)
           MAJOR_COUNT=$(jq '[.issues[] | select(.severity=="MAJOR")] | length' sonar-issues.json)
           MINOR_COUNT=$(jq '[.issues[] | select(.severity=="MINOR")] | length' sonar-issues.json)
-
+          
           echo "${BLOCKER_COUNT}" >> $CLOUDBEES_OUTPUTS/BLOCKER_COUNT
           echo "${CRITICAL_COUNT}" >> $CLOUDBEES_OUTPUTS/CRITICAL_COUNT
           echo "${MAJOR_COUNT}" >> $CLOUDBEES_OUTPUTS/MAJOR_COUNT
@@ -159,7 +152,7 @@ jobs:
         with:
           content: |-
             ## SonarQube Analysis Results
-
+            
             | Severity             | Issue Count |
             |----------------------|-------------|
             | BLOCKER_COUNT        | ${{ steps.FetchSonarQubeIssues.outputs.BLOCKER_COUNT }} |
@@ -167,6 +160,7 @@ jobs:
             | MAJOR_COUNT          | ${{ steps.FetchSonarQubeIssues.outputs.MAJOR_COUNT }} |
             | MINOR_COUNT          | ${{ steps.FetchSonarQubeIssues.outputs.MINOR_COUNT }} |
           format: MARKDOWN
+
   deploy:
     environment: DOW Production
     steps:
@@ -182,24 +176,24 @@ jobs:
         with:
           kustomization-base-dir: ${{ cloudbees.workspace }}/k8s/base
           kustomization-overlays-dir: ${{ cloudbees.workspace }}/k8s/overlays/prod
-          environment-variables: "{}"
+          environment-variables: '{}'
       - name: Publish evidence
         uses: cloudbees-io/publish-evidence-item@v1
         with:
           content: |-
             ## Deployed environment
             [Production frontend](https://hackers-organized-prod.preview.cb-demos.io/)
-
+            
             Running hackers-organized:${{ cloudbees.scm.sha }}
           format: MARKDOWN
       - name: Register_deployed_artifact
         uses: https://github.com/cloudbees-io/register-deployed-artifact@v1
         with:
-          name: ldonleycb/hackers-organized
-          version: ${{ cloudbees.scm.sha }}
-          url: ${{ secrets.DOCKERHUB_USER }}/hackers-organized:${{ cloudbees.scm.sha }}
+          name: "ldonleycb/hackers-organized"
+          version: "${{ cloudbees.scm.sha }}"
+          url: "${{ secrets.DOCKERHUB_USER }}/hackers-organized:${{ cloudbees.scm.sha }}"
           digest: ""
-          target-environment: DOW Production
+          target-environment: "DOW Production"
     needs:
       - build-container-image
       - scan
