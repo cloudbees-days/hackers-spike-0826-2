@@ -61,7 +61,7 @@ jobs:
       CODE_COVERAGE: ${{ steps.RunUnitTest.outputs.CODE_COVERAGE }}
   build-container-image:
     outputs:
-      artifact-id: ${{ fromJSON(steps.push-image.outputs.artifact-ids)[ format('index.docker.io/{0}//hackers-organized:{1}', vars.DOCKER_USERNAME, cloudbees.scm.sha) ] }}
+      artifact-id: ${{ fromJSON(steps.push-image.outputs.artifact-ids)[ format('index.docker.io/{0}/hackers-organized:{1}', secrets.DOCKERHUB_USER, cloudbees.scm.sha) ] }}
     steps:
       - uses: cloudbees-io/checkout@v1
         name: Get source code
